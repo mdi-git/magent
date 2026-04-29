@@ -1,0 +1,40 @@
+__pycache__/
+*.pyc
+.env
+.venv/
+env/
+outputs/
+checkpoints/
+logs/
+*.log
+*.tmp
+*.bak
+*.swp
+
+# datasets
+*.jsonl
+*.json
+*.csv
+*.parquet
+data/
+datasets/
+
+# model files
+*.bin
+*.pt
+*.pth
+*.safetensors
+*.cbm
+*.joblib
+
+# local/generated
+venv/
+catboost_info/
+.magent_tmp/
+*.zip
+
+# jupyter
+.ipynb_checkpoints/
+
+# vscode
+.vscode/
