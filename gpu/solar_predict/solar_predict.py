@@ -11,17 +11,17 @@ import seaborn as sns
 import matplotlib
 import warnings
 
-# [수정됨] XGBoost 경고 확실하게 끄기
-# 메시지 패턴 매칭 대신, xgboost 모듈에서 발생하는 모든 UserWarning을 차단합니다.
+# Fully suppress XGBoost warnings
+# Instead of message-pattern matching, block all UserWarning from xgboost.
 warnings.filterwarnings("ignore", category=UserWarning, module='xgboost')
 
-# matplotlib 설정
+# matplotlib settings
 #matplotlib.rcParams['font.family'] = ['DejaVu Sans', 'Malgun Gothic']
 matplotlib.rcParams['axes.unicode_minus'] = False
 matplotlib.rcParams['font.size'] = 10
 
 
-# 경로 설정
+# Path setup
 current_dir = os.path.dirname(os.path.abspath(__file__))
 METEO_PATH = os.path.join(current_dir, 'data', 'merged_meteo_d+1.csv')
 TARGET_PATH = os.path.join(current_dir, 'data', 'sg0_2025-01-15_06-05.csv')
@@ -33,7 +33,7 @@ os.makedirs(RESULT_DIR, exist_ok=True)
 
 
 def load_meteo_data(input_date):
-    """메테오 데이터 로드 및 전처리"""
+    """Load and preprocess meteorological data."""
     meteo_all = pd.read_csv(METEO_PATH)
     meteo_all['datetime'] = pd.to_datetime(meteo_all['datetime'])
 
@@ -41,7 +41,7 @@ def load_meteo_data(input_date):
     meteo_all = meteo_all[meteo_all['datetime'].dt.date == target_date.date()]
     meteo_all = meteo_all[(meteo_all['hour'] >= 9) & (meteo_all['hour'] <= 18)]
     
-    # XGBoost 보정 모델 로드 및 예측값 생성
+    # Load XGBoost correction model and generate predictions
     xgb = joblib.load(MODEL_PATH)
     meteo_all = meteo_all.copy()
     meteo_all['sr_sum'] = xgb.predict(meteo_all[['clearskyshortwave_instant_x60']].values)
@@ -54,20 +54,20 @@ def load_meteo_data(input_date):
 
 
 def load_target_data(input_date):
-    """실제 발전량 데이터 로드 및 전처리"""
+    """Load and preprocess actual power generation data."""
     target_df = pd.read_csv(TARGET_PATH, header=0)
     
-    # 60 컬럼의 차이값 계산 후 0.1 곱하여 power_60_sum 생성
+    # Compute diff of column 60 and multiply by 0.1 to build power_60_sum
     target_df['60'] = pd.to_numeric(target_df['60'], errors='coerce')
     target_df['power_60_sum'] = target_df['60'].diff() * 0.1
     target_df = target_df.dropna()
     
-    # datetime 컬럼을 TIMESTAMP로 변환
+    # Convert datetime column to TIMESTAMP
     target_df['datetime_clean'] = target_df['datetime'].str.replace('_', ' ')
     target_df['datetime'] = pd.to_datetime(target_df['datetime_clean'], format='%Y-%m-%d %H:%M:%S', errors='coerce')
     target_df = target_df.dropna(subset=['datetime'])
     
-    # input_date + 1일 기준으로 데이터 필터링 (예측 날짜의 발전량 데이터 사용)
+    # Filter by input_date + 1 day (use generation data for prediction date)
     target_date = pd.to_datetime(input_date) + pd.Timedelta(days=1)
     target_df = target_df[target_df['datetime'].dt.date == target_date.date()]
     
@@ -75,7 +75,7 @@ def load_target_data(input_date):
 
 
 def create_time_features(input_df, target_df):
-    """시간 정보 컬럼 생성"""
+    """Create time feature columns."""
     input_df['hour'] = input_df['time'].dt.hour
     input_df['dayofweek'] = input_df['time'].dt.dayofweek
     input_df['date'] = input_df['time'].dt.date
@@ -86,7 +86,7 @@ def create_time_features(input_df, target_df):
 
 
 def get_prevday_value(df, col, time_col='time'):
-    """전일 데이터 가져오기"""
+    """Get previous-day values."""
     df = df.copy()
     df['prevday'] = df[time_col] - pd.Timedelta(days=1)
     prev = df[[time_col, col]].copy()
@@ -96,7 +96,7 @@ def get_prevday_value(df, col, time_col='time'):
 
 
 def create_rolling_features(input_df):
-    """롤링 특성 생성"""
+    """Create rolling features."""
     grouped = input_df.groupby(input_df['time'].dt.date)
     input_df['sr_sum_rolling3'] = grouped['sr_sum'].rolling(3, min_periods=1).mean().reset_index(level=0, drop=True)
     input_df['sr_sum_rolling6'] = grouped['sr_sum'].rolling(6, min_periods=1).mean().reset_index(level=0, drop=True)
@@ -110,12 +110,12 @@ def create_rolling_features(input_df):
 
 
 def create_hour_features(input_df):
-    """시간별 특성 생성"""
+    """Create hour-level features."""
     input_df['sr_sum_ratio_d1'] = input_df['sr_sum'] / (input_df['sr_sum_d1'] + 1e-6)
-    # target_time을 다음날 같은 시간으로 설정 (D+1 예측이므로)
+    # Set target_time to the same hour next day (D+1 prediction)
     input_df['target_time'] = input_df['time'] + pd.Timedelta(days=1)
     
-    # 피벗 테이블로 시간별 특성 생성
+    # Create hour-level features using a pivot table
     input_df['hour_str'] = input_df['hour'].apply(lambda x: f"{x:02d}")
     pivot_df = input_df.pivot(index='date', columns='hour_str', values='sr_sum')
     pivot_df.columns = [f"sr_sum_{col}" for col in pivot_df.columns]
@@ -125,16 +125,16 @@ def create_hour_features(input_df):
 
 
 def get_latest_weight(weight_dir, prefix):
-    """최신 가중치 파일 경로 반환"""
+    """Return path to latest weight file."""
     files = [f for f in os.listdir(weight_dir) if f.startswith(prefix) and f.endswith('.pkl')]
     if not files:
-        raise FileNotFoundError(f'{prefix} 파일이 없습니다.')
+        raise FileNotFoundError(f'{prefix} file not found.')
     files = sorted(files, key=lambda x: os.path.getmtime(os.path.join(weight_dir, x)), reverse=True)
     return os.path.join(weight_dir, files[0])
 
 
 def load_ensemble_models():
-    """앙상블 모델 및 스케일러 로드"""
+    """Load ensemble model and scaler."""
     stack_path = get_latest_weight(WEIGHT_DIR, 'ensemble_stack_')
     scaler_path = get_latest_weight(WEIGHT_DIR, 'ensemble_scaler_')
     
@@ -142,22 +142,21 @@ def load_ensemble_models():
     
     # --------------------------------------------------------------------------
     # [FIX] LightGBM Version Compatibility Patch
-    # 저장된 모델(stack) 내의 LightGBM estimators가 구버전에서 저장되어
-    # _n_classes 속성이 None인 경우 발생하는 오류를 방지하기 위해 1로 강제 설정
+    # Some LightGBM estimators in saved stacks from older versions may have
+    # _n_classes=None; force to 1 to avoid runtime errors.
     # --------------------------------------------------------------------------
     if hasattr(stack, 'estimators_'):
         for est in stack.estimators_:
-            # LightGBM Regressor인지 확인 (속성 체크)
+            # Check whether estimator looks like LightGBM regressor
             if hasattr(est, '_n_classes') and est._n_classes is None:
                 est._n_classes = 1
                 
-    # Final Estimator도 확인
+    # Check final estimator as well
     if hasattr(stack, 'final_estimator_') and stack.final_estimator_ is not None:
          est = stack.final_estimator_
          if hasattr(est, '_n_classes') and est._n_classes is None:
             est._n_classes = 1
     # --------------------------------------------------------------------------
-
     scaler = joblib.load(scaler_path)
     
     try:
@@ -167,7 +166,7 @@ def load_ensemble_models():
             feature_path = get_latest_weight(WEIGHT_DIR, 'ensemble_features_')
             used_features = joblib.load(feature_path)
     except Exception as e:
-        raise ValueError('feature 목록을 불러올 수 없습니다: ' + str(e))
+        raise ValueError('Unable to load feature list: ' + str(e))
     
     return stack, scaler, used_features
 
@@ -177,36 +176,36 @@ def create_daily_plots(result_df, output_dir):
         if len(group) == 0:
             continue
             
-        fig, ax = plt.subplots(figsize=(16, 6), facecolor='#181b1f')  # 8:3 비율 (16:6)  
-        ax.set_facecolor('#1a1a1a')  # 더 깊은 어두운 배경
+        fig, ax = plt.subplots(figsize=(16, 6), facecolor='#181b1f')  # 8:3 ratio (16:6)
+        ax.set_facecolor('#1a1a1a')  # deeper dark background
         
-        # 시간 데이터 정리
+        # Prepare time data
         hours = group['datetime'].dt.hour.values
         pred_values = group['pred_power_60_sum'].values
         
         ax.grid(True, alpha=0.25, color='#383838', linestyle='-', linewidth=0.6, axis='y')
         ax.set_axisbelow(True)
         
-        # 예측 발전량 막대그래프 - 세련된 파스텔톤
+        # Predicted generation bar chart
         bars = ax.bar(hours, pred_values,
                       label='Predicted Power',
-                      color='#A78BFA',  # 세련된 파스텔 라벤더 (violet-400)
+                      color='#A78BFA',  # pastel lavender (violet-400)
                       alpha=0.9,
                       width=0.6,
                       edgecolor='#555555',
                       linewidth=0.8)
         
-        # 막대 위에 값 표시 - 스마트 라벨링
+        # Show values above bars with smart labeling
         max_value = max(pred_values) if len(pred_values) > 0 else 1
         for bar, value in zip(bars, pred_values):
-            if value > max_value * 0.1:  # 최대값의 10% 이상인 경우만 표시
+            if value > max_value * 0.1:  # show only values above 10% of max
                 height = bar.get_height()
                 ax.text(bar.get_x() + bar.get_width()/2., height + height*0.02,
                        f'{value:.1f}', ha='center', va='bottom',
                        fontsize=11, color='#ffffff', fontweight='bold',
                        bbox=dict(boxstyle='round,pad=0.3', facecolor='black', alpha=0.7))
         
-        # 축 설정
+        # Axis setup
         setup_axes(ax)
         ax.set_title(f'{date}', fontsize=20, fontweight='600', color='#f5f5f5')
         ax.set_xlabel('Time', fontsize=14, fontweight='normal', color='#aaaaaa')
@@ -216,7 +215,7 @@ def create_daily_plots(result_df, output_dir):
                  facecolor='#262626', edgecolor='#555555', labelcolor='#f0f0f0',
                  shadow=False, frameon=True, borderpad=0.8)
         
-        # 저장
+        # Save
         plt.tight_layout()
         fname = f'predicted_power_{date}.png'
         plt.savefig(os.path.join(output_dir, fname), dpi=200,
@@ -225,107 +224,107 @@ def create_daily_plots(result_df, output_dir):
 
 
 def setup_axes(ax):
-    """축 설정 """
-    # X축 범위 설정 (9시~18시)
+    """Axis setup."""
+    # X-axis range (09:00 to 18:00)
     ax.set_xlim(8.5, 18.5)
     ax.set_xticks(range(9, 19))
     ax.set_xticklabels([f'{h}:00' for h in range(9, 19)])
     
-    # 축 눈금 -
+    # Axis ticks
     ax.tick_params(axis='x', labelsize=13, labelcolor='#ffffff', width=1, length=5, color='#555555')
     ax.tick_params(axis='y', labelsize=13, labelcolor='#ffffff', width=1, length=5, color='#555555')
     
-    # 축 테두리 -
+    # Axis borders
     for spine in ax.spines.values():
         spine.set_color('#555555')
         spine.set_linewidth(1.2)
-    # 상단과 우측 테두리 숨기기
+    # Hide top and right borders
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
 
 
 def main(input_date):
-    """메인 함수"""
+    """Main function."""
     try:
-        # 1. 일사량 데이터 로드
+        # 1. Load irradiance data
         input_df = load_meteo_data(input_date)
         
         if len(input_df) == 0:
-            print("일사량 데이터가 없습니다.")
+            print("No irradiance data available.")
             return
         
-        # 2. 시간 특성 생성
+        # 2. Create time features
         input_df['hour'] = input_df['time'].dt.hour
         input_df['dayofweek'] = input_df['time'].dt.dayofweek
         input_df['date'] = input_df['time'].dt.date
         
-        # 3. 전일 데이터 추가
+        # 3. Add previous-day data
         input_df = get_prevday_value(input_df, 'sr_sum', 'time')
         
-        # 전일 데이터가 없는 경우 기본값으로 채우기
+        # Fill defaults if previous-day data is missing
         if 'sr_sum_d1' in input_df.columns:
             input_df['sr_sum_d1'] = input_df['sr_sum_d1'].fillna(0)
         else:
             input_df['sr_sum_d1'] = 0
         
-        # power_60_sum_d1은 기본값 0으로 설정 (전일 발전량 데이터 없음)
+        # Set power_60_sum_d1 default to 0 (no previous-day generation data)
         input_df['power_60_sum_d1'] = 0
         
-        # 4. 기본 특성 컬럼 정의
+        # 4. Define base feature columns
         feature_cols = [
             'sr_sum', 'sr_sum_d1', 'power_60_sum_d1', 'hour', 'dayofweek'
         ]
-        # 5. 롤링 특성 생성
+        # 5. Create rolling features
         input_df = create_rolling_features(input_df)
         feature_cols += ['sr_sum_rolling3_d1', 'sr_sum_rolling6_d1', 'sr_sum_cumsum_d1', 'sr_sum_diff1_d1']
         
-        # 6. 시간별 특성 생성
+        # 6. Create hour-level features
         input_df, pivot_df = create_hour_features(input_df)
         
-        # 7. 데이터 필터링
+        # 7. Filter data
         data = input_df[(input_df['hour'] >= 9) & (input_df['hour'] <= 18)].copy()       
         
-        # 9. 결측값 처리
+        # 9. Handle missing values
         data[['sr_sum_rolling3_d1', 'sr_sum_rolling6_d1', 'sr_sum_cumsum_d1', 'sr_sum_diff1_d1']] = \
             data[['sr_sum_rolling3_d1', 'sr_sum_rolling6_d1', 'sr_sum_cumsum_d1', 'sr_sum_diff1_d1']].fillna(0)
         
-        # 전일 데이터 관련 결측값도 처리
+        # Handle missing values related to previous-day features
         data['sr_sum_d1'] = data['sr_sum_d1'].fillna(0)
         data['power_60_sum_d1'] = data['power_60_sum_d1'].fillna(0)
         
-        # 10. 피벗 테이블 병합
+        # 10. Merge pivot table
         if 'date' not in data.columns:
             data['date'] = data['time'].dt.date
         
         data = data.merge(pivot_df, left_on='date', right_on='date', how='left')
         
-        # 11. 시간별 특성 추가
+        # 11. Add hour-level features
         hour_features = [f"sr_sum_{h:02d}" for h in range(9, 19)]
         feature_cols += hour_features
         data[hour_features] = data[hour_features].fillna(0)
         
-        # 12. 최종 데이터 정리
+        # 12. Finalize dataset
         data = data.dropna(subset=feature_cols)
         
         if len(data) == 0:
             return
         
-        # 13. 앙상블 모델 로드
+        # 13. Load ensemble model
         stack, scaler, used_features = load_ensemble_models()
         
-        # 14. 예측 수행
+        # 14. Run prediction
         X = data[used_features].values
         X_scaled = scaler.transform(X)
         preds = stack.predict(X_scaled)
         
-        # 15. 결과 저장
+        # 15. Save results
         result_df = data.copy()
         result_df['pred_power_60_sum'] = preds
         
-        # 16. 저장 컬럼 정리 (예측값만 사용)
+        # 16. Keep output columns (prediction only)
         save_cols = ['datetime', 'pred_power_60_sum']
         
-        # 예측 결과의 datetime을 다음날로 설정 (D+1 예측이므로)
+        # Set prediction datetime to next day (D+1)
         if 'datetime' not in result_df.columns:
             if 'target_time' in result_df.columns:
                 result_df['datetime'] = result_df['target_time']
@@ -334,7 +333,7 @@ def main(input_date):
         
         result_df['hour'] = pd.to_datetime(result_df['datetime']).dt.hour
         
-        # 17. 그래프 생성
+        # 17. Generate plots
         create_daily_plots(result_df, RESULT_DIR)
         
     except Exception as e:
@@ -342,5 +341,5 @@ def main(input_date):
 
 
 if __name__ == "__main__":
-    test_date = "2025-02-28"  # 원하는 날짜 입력
+    test_date = "2025-02-28"  # input target date
     main(test_date)

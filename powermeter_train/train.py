@@ -16,7 +16,7 @@ MAX_DEPTH = int(os.getenv("MAGENT_MAX_DEPTH", "-1"))
 TRAIN_RESULT_PATH = os.getenv("MAGENT_TRAIN_RESULT_PATH")
 
 # ==========================================
-# 1. 설정
+# 1. Setup
 # ==========================================
 DATA_PATHS = [
     os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'powermeter_250520_250604.csv'),
@@ -26,9 +26,9 @@ DATA_PATHS = [
     os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'powermeter_250913_251013.csv'),
 ]
 
-# 모델 저장 디렉토리 및 설정
+# Model output directory and settings
 PKL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pkl')
-PREDICTION_DAYS = 3  # 3일치 예측
+PREDICTION_DAYS = 3  # 3-day forecast
 
 def load_and_preprocess(paths):
     df_list = []
@@ -39,10 +39,10 @@ def load_and_preprocess(paths):
                 temp.columns = [c.strip() for c in temp.columns]
                 df_list.append(temp)
             except Exception:
-                pass # 로드 실패시 조용히 넘어감
+                pass  # Skip quietly on load failure
     
     if not df_list:
-        raise ValueError("데이터 로드 실패: 경로를 확인하세요.")
+        raise ValueError("Data loading failed: please check paths.")
 
     raw_df = pd.concat(df_list, axis=0, ignore_index=True)
     raw_df['time'] = pd.to_datetime(raw_df['time'])
@@ -52,12 +52,12 @@ def load_and_preprocess(paths):
 def create_dataset(raw_df):
     raw_df = raw_df.set_index('time')
     
-    # 일 단위 집계
+    # Daily aggregation
     daily_df = raw_df.resample('D').agg({
         'Ep-': 'max', 'P': 'mean', 'Ua': 'mean', 'Ia': 'mean'
     }).dropna()
     
-    # 소비량(차분)
+    # Consumption (diff)
     daily_df['daily_consumption'] = daily_df['Ep-'].diff()
     daily_df = daily_df[daily_df['daily_consumption'] > 0].copy()
     
@@ -84,7 +84,7 @@ def create_dataset(raw_df):
     return model_df, target_cols
 
 if __name__ == "__main__":
-    # 1. 데이터 준비
+    # 1. Prepare data
     raw_df = load_and_preprocess(DATA_PATHS)
     train_df, target_cols = create_dataset(raw_df)
     
@@ -97,12 +97,12 @@ if __name__ == "__main__":
     X = train_df[features]
     y = train_df[target_cols]
     
-    # 학습/검증 분리
+    # Train/validation split
     split_idx = int(len(X) * 0.8)
     X_train, X_test = X.iloc[:split_idx], X.iloc[split_idx:]
     y_train, y_test = y.iloc[:split_idx], y.iloc[split_idx:]
     
-    # 2. 모델 학습
+    # 2. Train model
     print("Training LightGBM...")
     model = MultiOutputRegressor(
         LGBMRegressor(
@@ -119,15 +119,15 @@ if __name__ == "__main__":
     model.fit(X_train, y_train)
     
     # ------------------------------------------
-    # 검증 지표 출력 (MAE)
+    # Print validation metric (MAE)
     # ------------------------------------------
     preds = model.predict(X_test)
     
     print("\n" + "="*50)
-    print("[ 검증 결과 (Validation MAE) ]")
+    print("[ Validation Results (MAE) ]")
     print("="*50)
     
-    # 전체 MAE
+    # Overall MAE
     overall_mae = mean_absolute_error(y_test, preds)
     print(f"Total Average MAE : {overall_mae:.2f}")
 
@@ -135,7 +135,7 @@ if __name__ == "__main__":
     # ------------------------------------------
 
     # ==========================================
-    # 3. 모델 저장 (.pkl)
+    # 3. Save model (.pkl)
     # ==========================================
     os.makedirs(PKL_DIR, exist_ok=True)
     
@@ -157,7 +157,7 @@ if __name__ == "__main__":
         "mae": float(overall_mae),
     }
     joblib.dump(packet, model_filepath)
-    print(f"모델 저장 완료: {model_filepath}")
+    print(f"Model saved: {model_filepath}")
 
     if TRAIN_RESULT_PATH:
         payload = {

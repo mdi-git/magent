@@ -6,40 +6,44 @@ import numpy as np
 from env import ESSEnv
 
 # ==============================================================================
-# 1. 설정
+# 1. Setup
 # ==============================================================================
-TARGET_YEAR = 2025        # 원하는 연도
+TARGET_YEAR = 2025        # target year
+
 START_DATE = f'{TARGET_YEAR}-05-01'
 END_DATE = f'{TARGET_YEAR}-05-31'
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# 파일 경로 설정
+# File path setup
+
 DATA_PATH = os.path.join(CURRENT_DIR, 'data', 'ess_carbon.csv')
 WEIGHT_PATH = os.path.join(CURRENT_DIR, 'pt', 'ga_best_individual_0724_1401.pt')
 RESULT_DIR = os.path.join(CURRENT_DIR, 'result')
 CSV_PATH = os.path.join(RESULT_DIR, 'ga_test_action.csv')
 
 # ==============================================================================
-# 2. 함수 정의
+# 2. Function definitions
 # ==============================================================================
 
 def load_data(data_path, start_date, end_date, target_year=None):
-    """데이터 로드 및 날짜 필터링 (연도 설정 기능 포함)"""
+    """Load data and filter by date range (with optional year override)."""
     if not os.path.exists(data_path):
-        print(f"오류: 데이터 파일이 없습니다 -> {data_path}")
+        print(f"Error: data file does not exist -> {data_path}")
         sys.exit()
         
     df = pd.read_csv(data_path)
     
-    # 연도 설정 로직
+    # Year override logic
     if target_year is not None:
-        # CSV가 MM-DD 형식일 때 앞에 연도 부착
+        # If CSV uses MM-DD format, prepend target year
         df['datetime'] = pd.to_datetime(str(target_year) + '-' + df['datetime'], format='%Y-%m-%d')
+
     else:
         df['datetime'] = pd.to_datetime(df['datetime'])
 
-    # 날짜 필터링
+    # Date filtering
+
     start_dt = pd.to_datetime(start_date)
     end_dt = pd.to_datetime(end_date)
     
@@ -47,65 +51,75 @@ def load_data(data_path, start_date, end_date, target_year=None):
     return df.reset_index(drop=True)
 
 def save_action_csv(dates, actions, amounts, save_path):
-    """결과 CSV 저장"""
+    """Save result CSV."""
+
     df = pd.DataFrame({
         'date': dates,
-        'action': actions,  # 1=충전, 0=대기, -1=방전
+        'action': actions,  # 1=charge, 0=idle, -1=discharge
+
         'amount_kWh': amounts
     })
     df.to_csv(save_path, index=False, encoding='utf-8-sig')
 
 def print_carbon_saving(total_kwh):
-    """탄소 절감량 출력"""
+    """Print carbon reduction."""
+
     carbon_factor = 0.4448
     saved = total_kwh * carbon_factor * 0.001
     print(f"-"*30)
-    print(f"총 절감된 탄소량: {saved:.2f} tCO2-eq")
+    print(f"Total carbon reduction: {saved:.2f} tCO2-eq")
+
     print(f"-"*30)
 
 # ==============================================================================
-# 3. 메인 실행 로직
+# 3. Main execution logic
 # ==============================================================================
 
 if __name__ == "__main__":
-    # 폴더 생성
+    # Create output directory
+
     if not os.path.exists(RESULT_DIR):
         os.makedirs(RESULT_DIR)
 
     if not os.path.exists(WEIGHT_PATH):
-        print(f"오류: 가중치 파일이 없습니다 -> {WEIGHT_PATH}")
+        print(f"Error: weight file does not exist -> {WEIGHT_PATH}")
+
         sys.exit()
 
-    print(f">>> 시뮬레이션 시작: {START_DATE} ~ {END_DATE}")
+    print(f">>> Simulation start: {START_DATE} ~ {END_DATE}")
 
-    # 1. 데이터 로드 (이제 같은 파일 안에 함수가 있으므로 에러 안 남)
+    # 1. Load data
+
     df = load_data(DATA_PATH, START_DATE, END_DATE, target_year=TARGET_YEAR)
     N_DAYS = len(df)
     
     if N_DAYS == 0:
-        print("!!! 오류: 해당 기간의 데이터가 없습니다. 날짜를 확인해주세요.")
+        print("!!! Error: no data for the selected period. Please check dates.")
+
         sys.exit()
         
     env = ESSEnv(df)
 
-    # 2. 모델(가중치) 로드
-    print(f">>> 모델 로드 중: {os.path.basename(WEIGHT_PATH)}")
+    # 2. Load model (weights)
+    print(f">>> Loading model: {os.path.basename(WEIGHT_PATH)}")
+
     try:
         data = torch.load(WEIGHT_PATH, weights_only=False)
         actions = data['actions']
         amounts = data['amounts']
     except Exception as e:
-        print(f"!!! 모델 로드 실패: {e}")
+        print(f"!!! Model load failed: {e}")
+
         sys.exit()
 
-    # 3. 루프 실행
+    # 3. Run loop
+
     dates = []
     actions_list = []
     amounts_list = []
     total_charge_kwh = 0
     state = env.reset()
 
-  
     for i in range(N_DAYS):
         if i >= len(actions):
             
@@ -114,7 +128,8 @@ if __name__ == "__main__":
         action = int(actions[i])
         amount = float(amounts[i])
         
-        # 날짜 포맷 (MM-dd)
+        # Date format (MM-dd)
+
         dates.append(df.iloc[i]['datetime'].strftime('%m-%d'))
         actions_list.append(action)
         amounts_list.append(amount)
@@ -126,9 +141,11 @@ if __name__ == "__main__":
         if done:
             break
 
-    # 4. 결과 저장
+    # 4. Save results
+
     save_action_csv(dates, actions_list, amounts_list, CSV_PATH)
     
 
-    # 5. 최종 출력
+    # 5. Final output
+
     print_carbon_saving(total_charge_kwh)

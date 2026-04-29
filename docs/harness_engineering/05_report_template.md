@@ -1,6 +1,6 @@
 # Training Report Template
 
-아래 템플릿을 표준 리포트 형태로 사용한다.
+Use the template below as the standard report format.
 
 ```text
 timestamp=20260427_0715
@@ -21,13 +21,13 @@ model=/abs/path/wind_model_1h.cbm
 feature=/abs/path/wind_features_1h.joblib
 ```
 
-## 작성 규칙
+## Writing Rules
 - timestamp: `YYYYMMDD_HHMM`
-- score는 원본 float 유지(후처리 반올림 금지)
-- params는 실행 입력과 동일하게 기록
-- 실패시에도 rounds/best/deployed 구조 유지
+- Keep score as original float (no post-rounding)
+- Record `params` exactly as run input
+- Keep `rounds`/`best`/`deployed` structure even on failure
 
-## 실패 예시
+## Failure Example
 
 ```text
 timestamp=20260427_0721

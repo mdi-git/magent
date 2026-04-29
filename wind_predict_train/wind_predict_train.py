@@ -15,7 +15,7 @@ L2_LEAF_REG = float(os.getenv("MAGENT_L2_LEAF_REG", "3"))
 TRAIN_RESULT_PATH = os.getenv("MAGENT_TRAIN_RESULT_PATH")
 
 # ==========================================
-# 1. 경로 설정
+# 1. Path setup
 # ==========================================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, 'data')
@@ -29,18 +29,18 @@ os.makedirs(CBM_DIR, exist_ok=True)
 def load_and_resample_1h(weather_path, power_path):
     print("Loading Data...")
     
-    # --- 1. 기상 데이터 로드 ---
+    # --- 1. Load weather data ---
     df = pd.read_csv(weather_path)
     df['TIMESTAMP'] = pd.to_datetime(df['TIMESTAMP'], errors='coerce')
     df = df.dropna(subset=['TIMESTAMP'])
 
-    # --- 2. 발전량 데이터 로드 ---
+    # --- 2. Load power data ---
     power_df = pd.read_csv(power_path, header=0, low_memory=False)
     timestamp_col = power_df.iloc[:, -1].astype(str).str.strip()
     power_df['power_TIMESTAMP'] = pd.to_datetime(timestamp_col, format='%Y-%m-%d_%H:%M:%S', errors='coerce')
     power_df = power_df.dropna(subset=['power_TIMESTAMP'])
 
-    # 발전량 컬럼 처리 (인덱스 43 또는 이름 '1443')
+    # Handle power column (index 43 or column name '1443')
     try:
         col_idx = 43
         power_df['Output Power'] = pd.to_numeric(power_df.iloc[:, col_idx], errors='coerce')
@@ -48,21 +48,21 @@ def load_and_resample_1h(weather_path, power_path):
         if '1443' in power_df.columns:
             power_df['Output Power'] = pd.to_numeric(power_df['1443'], errors='coerce')
         else:
-            raise ValueError("발전량 컬럼(1443)을 찾을 수 없습니다.")
+            raise ValueError("Power column (1443) not found.")
 
-    # --- 3. 병합 ---
+    # --- 3. Merge ---
     merged_df = pd.merge(df, power_df[['power_TIMESTAMP', 'Output Power']], 
                          left_on='TIMESTAMP', right_on='power_TIMESTAMP', how='inner')
     
     if len(merged_df) == 0:
-        raise ValueError("날짜 범위 불일치로 병합 데이터가 없습니다.")
+        raise ValueError("No merged data found due to date-range mismatch.")
 
-    # 숫자형 변환
+    # Numeric conversion
     cols = ['WS_Avg', 'WD_Avg', 'Temp_Avg', 'Air_P_Avg', 'Output Power']
     for col in cols:
         merged_df[col] = pd.to_numeric(merged_df[col], errors='coerce')
 
-    # --- 4. 1시간 Resampling ---
+    # --- 4. 1-hour resampling ---
     merged_df = merged_df.set_index('TIMESTAMP')
     agg_rules = {
         'WS_Avg': 'mean', 'WD_Avg': 'mean', 'Temp_Avg': 'mean', 'Air_P_Avg': 'mean',
@@ -70,32 +70,32 @@ def load_and_resample_1h(weather_path, power_path):
     }
     df_1h = merged_df.resample('1h').agg(agg_rules).dropna()
 
-    # --- 5. 하루 단위 리셋 대응 차분 계산 ---
-    # 날짜 컬럼 생성
+    # --- 5. Diff calculation with daily reset handling ---
+    # Create date column
     df_1h['DATE_tmp'] = df_1h.index.date
     
-    # 날짜별로 그룹을 묶어 차분 계산 (자정 리셋 시 음수 발생 방지)
+    # Compute diff by day (prevents negative values from midnight reset)
     df_1h['Output Power Diff'] = df_1h.groupby('DATE_tmp')['Output Power'].diff()
     
-    # 리셋 후 첫 번째 데이터(NaN)는 리셋된 시점의 누적값이 곧 해당 시간 발전량이므로 그대로 채움
+    # For the first row after reset, fill NaN with the cumulative value at reset time
     df_1h['Output Power Diff'] = df_1h['Output Power Diff'].fillna(df_1h['Output Power'])
 
-    # 발전량(차분)이 0 이하인 데이터의 개수를 날짜별로 카운트
+    # Count rows per day where power diff is <= 0
     zero_counts_per_day = df_1h[df_1h['Output Power Diff'] <= 0].groupby('DATE_tmp').size()
     
-    # 0값이 20개 이상인 날짜 목록 추출
+    # Extract dates with 20 or more zero/non-positive entries
     drop_dates = zero_counts_per_day[zero_counts_per_day >= 20].index
     
-    # 해당 날짜를 데이터프레임에서 완전히 제외
+    # Remove those dates completely from the dataframe
     df_1h = df_1h[~df_1h['DATE_tmp'].isin(drop_dates)]
 
-    # --- 6. 필터링 (발전량이 0인 나머지 개별 데이터 제외) ---
+    # --- 6. Filtering (remove remaining rows where power is 0) ---
     df_1h = df_1h[df_1h['Output Power Diff'] > 0] 
 
     return df_1h.drop(columns=['DATE_tmp']).reset_index()
 
 def create_features(df):
-    """특성 생성 (기존 유지)"""
+    """Create features (kept as-is)."""
     if len(df) == 0: return df
     
     df['hour'] = df['TIMESTAMP'].dt.hour
@@ -112,23 +112,23 @@ def create_features(df):
     return df.dropna().reset_index(drop=True)
 
 def main():
-    # 저장용 타임스탬프 생성
+    # Create timestamp for output files
     current_time = datetime.now().strftime('%Y%m%d_%H%M%S')
     current_model_file = os.path.join(CBM_DIR, f'wind_model_1h_{current_time}.cbm')
     current_feature_file = os.path.join(CBM_DIR, f'wind_features_1h_{current_time}.joblib')
 
-    print(f"[{current_time}] 학습 프로세스 시작...")
+    print(f"[{current_time}] Training process started...")
     
     try:
-        # 1. 데이터 전처리 (리셋 로직 및 0 제외 적용)
+        # 1. Data preprocessing (apply reset logic and remove zeros)
         df = load_and_resample_1h(WEATHER_PATH, POWER_PATH)
         df = create_features(df)
-        print(f"  -> 유효 학습 데이터 수: {len(df)} 행")
+        print(f"  -> Valid training rows: {len(df)}")
 
         if len(df) < 10:
-             raise ValueError("데이터가 너무 적어 학습을 진행할 수 없습니다.")
+             raise ValueError("Not enough data to train.")
 
-        # 2. 특징 및 타겟 설정
+        # 2. Set features and target
         target = 'Output Power Diff'
         features = [
             'WS_Avg', 'WD_sin', 'WD_cos', 'Temp_Avg', 'Air_P_Avg', 
@@ -138,10 +138,10 @@ def main():
         X = df[features]
         y = df[target]
 
-        # 시계열 특성을 고려하여 순서대로 분리
+        # Split in chronological order to preserve time-series characteristics
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
 
-        # 3. CatBoost 모델 정의 및 학습
+        # 3. Define and train CatBoost model
         print("Training CatBoost Regressor...")
         model = CatBoostRegressor(
             iterations=ITERATIONS,
@@ -155,22 +155,24 @@ def main():
         
         model.fit(X_train, y_train, eval_set=(X_test, y_test), early_stopping_rounds=1000)
 
-        # 4. 평가지표 산출 및 출력
+        # 4. Compute and print evaluation metrics
         y_pred = model.predict(X_test)
         mae = mean_absolute_error(y_test, y_pred)
         rmse = np.sqrt(mean_squared_error(y_test, y_pred))
         r2 = r2_score(y_test, y_pred)
 
         print("\n" + "="*50)
-        print(" [학습 완료 - 모델 성능 리포트]")
+        print(" [Training completed - Model performance report]")
+
         print("-"*50)
-        print(f" * R² Score (결정 계수): {r2:.4f}")
+        print(f" * R² Score (coefficient of determination): {r2:.4f}")
+
         print("="*50)
 
-        # 5. 모델 및 특징 리스트 저장
+        # 5. Save model and feature list
         model.save_model(current_model_file)
         joblib.dump(features, current_feature_file)
-        print(f"\n[성공] 모델 저장됨: {current_model_file}")
+        print(f"\n[Success] Model saved: {current_model_file}")
 
         if TRAIN_RESULT_PATH:
             payload = {
@@ -193,7 +195,7 @@ def main():
                 json.dump(payload, f, ensure_ascii=False, indent=2)
         
     except Exception as e:
-        print(f"\n[오류 발생] {e}")
+        print(f"\n[Error] {e}")
 
 if __name__ == "__main__":
     main()

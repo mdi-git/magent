@@ -7,33 +7,33 @@ from lightgbm import LGBMRegressor
 from sklearn.multioutput import MultiOutputRegressor
 
 # ==========================================
-# 1. 설정 (상대 경로 적용)
+# 1. Setup (relative paths)
 # ==========================================
 
-# 현재 파일이 있는 폴더 경로 (예: D:/workspace/gpu/powermeter)
+# Directory of the current file
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# 1. 추론용 데이터 경로
+# 1. Inference data paths
 INFERENCE_DATA_PATHS = [
     os.path.join(BASE_DIR, 'data', 'powermeter_250520_250604.csv')
 ]
 
-# 2. 모델 파일 경로
+# 2. Model file path
 MODEL_PATH = os.path.join(BASE_DIR, 'pkl', 'lgbm_3days_1230_1137.pkl')
 
-# 3. 결과 저장 경로
+# 3. Result output path
 RESULT_SAVE_PATH = os.path.join(BASE_DIR, 'power_result', 'result.csv')
 
-print(f"현재 실행 위치: {BASE_DIR}")
-print(f"모델 읽을 경로: {MODEL_PATH}")
+print(f"Current execution directory: {BASE_DIR}")
+print(f"Model load path: {MODEL_PATH}")
 
 # ==========================================
-# 2. 함수 정의
+# 2. Function definitions
 # ==========================================
 
 def load_model(path):
     if not os.path.exists(path):
-        print(f"🚨 오류: 모델 파일을 찾을 수 없습니다 -> {path}")
+        print(f"🚨 Error: model file not found -> {path}")
         raise FileNotFoundError(path)
     return joblib.load(path)
 
@@ -45,7 +45,7 @@ def preprocess_for_inference(paths, features):
             temp.columns = [c.strip() for c in temp.columns]
             df_list.append(temp)
         else:
-            print(f"⚠️ 경고: 데이터 파일 없음 -> {path}")
+            print(f"⚠️ Warning: data file not found -> {path}")
             
     if not df_list:
         return pd.DataFrame()
@@ -55,14 +55,14 @@ def preprocess_for_inference(paths, features):
     raw_df = raw_df.sort_values('time').reset_index(drop=True)
     raw_df = raw_df.set_index('time')
     
-    # 일별 데이터 집계
+    # Daily aggregation
     daily_df = raw_df.resample('D').agg({
         'Ep-': 'max', 'P': 'mean', 'Ua': 'mean', 'Ia': 'mean'
     }).dropna()
     
     daily_df['daily_consumption'] = daily_df['Ep-'].diff()
     
-    # Feature Engineering (학습 때와 동일해야 함)
+    # Feature engineering (must match training)
     daily_df['lag_1d'] = daily_df['daily_consumption'].shift(1)
     daily_df['lag_2d'] = daily_df['daily_consumption'].shift(2)
     daily_df['lag_3d'] = daily_df['daily_consumption'].shift(3)
@@ -78,7 +78,7 @@ def preprocess_for_inference(paths, features):
     return inference_df
 
 if __name__ == "__main__":
-    # 1. 모델 로드
+    # 1. Load model
     try:
         packet = load_model(MODEL_PATH)
     except FileNotFoundError:
@@ -88,7 +88,7 @@ if __name__ == "__main__":
     features = packet['features']
     prediction_days = packet.get('prediction_days', 3)
     
-    # LightGBM 버전 호환성 패치
+    # LightGBM version compatibility patch
     try:
         if hasattr(model, 'estimators_'):
             for est in model.estimators_:
@@ -99,23 +99,23 @@ if __name__ == "__main__":
     except:
         pass
 
-    # 2. 데이터 처리
+    # 2. Data processing
     try:
         df = preprocess_for_inference(INFERENCE_DATA_PATHS, features)
     except Exception as e:
-        print(f"데이터 전처리 중 오류 발생: {e}")
+        print(f"Error during data preprocessing: {e}")
         sys.exit()
     
     if len(df) == 0:
-        print("전처리된 데이터가 없습니다. 종료합니다.")
+        print("No preprocessed data available. Exiting.")
         sys.exit()
 
-    # 3. 예측 수행
-    # 학습에 사용된 피처만 선택 (순서 중요)
+    # 3. Run prediction
+    # Select only features used in training (order matters)
     X = df[features]
     preds = model.predict(X)
     
-    # 4. 결과 저장
+    # 4. Save results
     result_df = pd.DataFrame(index=df.index)
     
     for i in range(prediction_days):
@@ -129,10 +129,10 @@ if __name__ == "__main__":
     numeric_cols = result_df.select_dtypes(include=['float']).columns
     result_df[numeric_cols] = result_df[numeric_cols].round(2)
     
-    # 저장 폴더가 없으면 생성
+    # Create output directory if it does not exist
     save_dir = os.path.dirname(RESULT_SAVE_PATH)
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
         
     result_df.to_csv(RESULT_SAVE_PATH, index=False, encoding='utf-8-sig')
-    # print(f"결과 저장 완료: {RESULT_SAVE_PATH}")
+    print(f"Results saved: {RESULT_SAVE_PATH}")

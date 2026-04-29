@@ -1,6 +1,6 @@
 # Agent Profiles Example
 
-이 파일은 에이전트별 목표, metric, 조기종료 기준, 탐색 후보군을 한 곳에서 관리하는 예시다.
+This file is an example of managing per-agent objectives, metrics, early-stop criteria, and search candidates in one place.
 
 ```yaml
 agents:
@@ -84,7 +84,7 @@ agents:
         max_depth: 10
 ```
 
-## 사용 방식
-- 코드 하드코딩 대신 이 프로파일을 기준 데이터로 사용
-- 운영자는 acceptable/후보군만 수정해 정책을 변경
-- 논문/보고서에는 이 파일을 실험 설정 근거로 첨부
+## How to Use
+- Use this profile as source-of-truth data instead of hardcoding values
+- Operators can change policy by editing only `acceptable` and candidate sets
+- For papers/reports, attach this file as the experiment configuration reference

@@ -1,30 +1,30 @@
 # Harness Engineering Overview for `magent`
 
-## 목적
-이 문서는 `magent` 프로젝트의 핵심 목표인 아래 파이프라인을 **코드 변경 최소화 + 운영 재현성 극대화** 방식으로 달성하기 위한 Harness Engineering 설계를 정의한다.
+## Purpose
+This document defines a Harness Engineering design to achieve the core `magent` pipeline with **minimal code changes and maximum operational reproducibility**.
 
-- 예측 에이전트 실행 시 학습 루틴 자동 호출
-- 하이퍼파라미터 튜닝 기반 반복 학습
-- 성능 기준(best score)으로 모델 선택
-- 선택 모델을 추론 경로로 배포 후 예측 실행
-- 과정/결과를 리포트로 기록
+- Automatically trigger training when forecast agents run
+- Perform repeated training with hyperparameter tuning
+- Select the best model by score
+- Deploy the selected model to the inference path and run prediction
+- Record process and outcomes in reports
 
-## Harness Engineering이 필요한 이유
-기능 구현만으로는 다음 문제가 남는다.
+## Why Harness Engineering
+Feature implementation alone leaves the following issues:
 
-1. 실험이 실행자마다 다르게 수행됨
-2. 종료 조건과 탐색 정책이 코드에 하드코딩되어 변경 비용이 큼
-3. 리포트 형식이 일관되지 않아 사후 분석이 어려움
-4. 운영/논문/재현 실험을 동일 절차로 돌리기 어려움
+1. Experiments are executed differently by each operator.
+2. Stop conditions and search policy are hardcoded, making changes costly.
+3. Inconsistent report formats make post-analysis difficult.
+4. It is hard to run operations, papers, and reproducibility tests with one workflow.
 
-Harness Engineering은 위 문제를 다음으로 해결한다.
+Harness Engineering addresses these issues by:
 
-- 실행 규칙을 문서(계약)로 명시
-- 탐색 정책을 문서 기반 파라미터로 분리
-- 평가 및 중단 기준을 표준화
-- 결과 리포트를 구조화
+- Defining execution rules as explicit contracts
+- Separating search policy into document-driven parameters
+- Standardizing evaluation and stopping criteria
+- Structuring output reports
 
-## 권장 디렉토리
+## Recommended Directory
 
 ```text
 docs/harness_engineering/
@@ -37,9 +37,9 @@ docs/harness_engineering/
   06_agent_profiles_example.md
 ```
 
-## 적용 범위
+## Scope
 - `solar_forecast_agent`
 - `wind_forecast_agent`
 - `consumption_forecast_agent`
 
-이상탐지 에이전트(`solar_anomaly`, `wind_anomaly`)는 본 harness의 1차 범위 밖으로 두되, 동일 템플릿 확장 가능하도록 설계한다.
+Anomaly agents (`solar_anomaly`, `wind_anomaly`) are outside the first rollout scope of this harness, but the design supports extension with the same template.

@@ -9,23 +9,23 @@ from datetime import datetime, timedelta
 import itertools
 
 # -----------------------------------------------------------
-# 1. 설정 및 상수 정의
+# 1. Configuration and constants
 # -----------------------------------------------------------
 
-# matplotlib 설정
+# matplotlib settings
 #matplotlib.rcParams['font.family'] = ['DejaVu Sans', 'Malgun Gothic']
 matplotlib.rcParams['axes.unicode_minus'] = False
 matplotlib.rcParams['font.size'] = 10
 #matplotlib.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Malgun Gothic']
 
-# 시스템 모드 설정
+# System mode settings
 TEST_MODE = True
 TEST_DATES = [
     "2025-05-08",
     "2025-05-09",
 ]
 
-# 경로 설정
+# Path setup
 current_dir = os.path.dirname(os.path.abspath(__file__))
 DATA_PATH = os.path.join(current_dir, 'data', '기상센서.csv')
 POWER_DATA_PATH = os.path.join(current_dir, 'data', 'wi2_0507_0605.csv')
@@ -34,34 +34,34 @@ OUTPUT_DIR = os.path.join(current_dir, 'wind_anomaly_results')
 FEATURE_PATH = os.path.join(current_dir, 'cbm', 'feature_columns_0822_1449.joblib')
 
 # -----------------------------------------------------------
-# 2. 데이터 로드 및 전처리
+# 2. Data loading and preprocessing
 # -----------------------------------------------------------
 
 def load_and_preprocess_data(file_path):
-    """데이터 로드 및 기본 전처리"""
+    """Load data and apply basic preprocessing."""
     
-    # 1. 기상센서 데이터 로드
+    # 1. Load weather sensor data
     df = pd.read_csv(file_path)
     df['TIMESTAMP'] = pd.to_datetime(df['TIMESTAMP'], errors='coerce')
     
-    # 2. 발전량 데이터 로드
+    # 2. Load power data
     power_df = pd.read_csv(POWER_DATA_PATH, header=0, low_memory=False)
     
-    # 3. 발전량 시간 포맷 통일
+    # 3. Normalize power timestamp format
     power_df['TIMESTAMP_raw'] = power_df.iloc[:, -1].astype(str)
     power_df['TIMESTAMP_clean'] = power_df['TIMESTAMP_raw'].str.replace('_', ' ')
     power_df['power_TIMESTAMP'] = pd.to_datetime(power_df['TIMESTAMP_clean'], errors='coerce')
     
-    # [핵심] 초(Seconds) 단위를 제거하여 기상센서(분 단위)와 매칭
+    # [Key] Remove seconds to align with minute-level weather sensor timestamps
     power_df['power_TIMESTAMP'] = power_df['power_TIMESTAMP'].dt.floor('min')
     
-    # 4. 1443 컬럼(44번째, 발전량) 처리
+    # 4. Handle 1443 column (44th column, power)
     if '1443' in power_df.columns:
         power_col_name = '1443'
     else:
         power_col_name = power_df.columns[43]
     
-    # 해당 컬럼을 숫자로 변환
+    # Convert selected power column to numeric
     power_df['Output Power'] = pd.to_numeric(power_df[power_col_name], errors='coerce')
     power_df['Output Power Diff'] = power_df['Output Power'].diff()
     power_df = power_df.dropna(subset=['Output Power Diff', 'power_TIMESTAMP'])
@@ -69,7 +69,7 @@ def load_and_preprocess_data(file_path):
     if len(power_df) == 0:
         return df
     
-    # 5. 데이터 병합
+    # 5. Merge datasets
     if 'Output Power Diff' in df.columns:
         df = df.drop(columns=['Output Power Diff'])
     
@@ -79,7 +79,7 @@ def load_and_preprocess_data(file_path):
     if len(df) == 0:
         return df
     
-    # 6. 추가 특성 생성
+    # 6. Create additional features
     numeric_columns = ['Output Power Diff', 'WS_Avg', 'WD_Avg', 'Temp_Avg', 'Air_P_Avg']
     for col in numeric_columns:
         if col in df.columns:
@@ -98,17 +98,18 @@ def load_and_preprocess_data(file_path):
     return df
 
 # -----------------------------------------------------------
-# 3. 특성 공학 및 이상 감지 로직
+# 3. Feature engineering and anomaly detection logic
 # -----------------------------------------------------------
 
 def create_advanced_features(df, seq_length):
-    """고급 특성 생성"""
+    """Create advanced features."""
+    
     if len(df) == 0:
         return df
         
     feature_list = ['WS_Avg', 'WD_Avg', 'Temp_Avg', 'Air_P_Avg', 'Output Power Diff']
     
-    # 1. lag features
+    # 1. Lag features
     for feature in feature_list:
         for i in range(1, seq_length + 1):
             df[f'{feature}_lag_{i}'] = df[feature].shift(i)
@@ -155,7 +156,8 @@ def create_advanced_features(df, seq_length):
     return df
 
 def apply_90min_continuous_anomaly_detection(df):
-    """120분 연속된 이상 구간만 마스킹"""
+    """Mask only anomaly segments that are continuous for a minimum duration."""
+    
     min_continuous_points = 6  
     is_anomaly = df['IS_ANOMALY'].values
     final_anomaly = np.zeros(len(df), dtype=int)
@@ -176,11 +178,12 @@ def apply_90min_continuous_anomaly_detection(df):
     return df
 
 # -----------------------------------------------------------
-# 4. 시각화 함수
+# 4. Visualization functions
 # -----------------------------------------------------------
 
 def create_30min_plots(daily_data, output_dir, date):
-    """결과 그래프 생성"""
+    """Create result plot."""
+    
     x_pos = np.arange(len(daily_data))
     
     fig, ax1 = plt.subplots(1, 1, figsize=(18, 8), facecolor='#181b1f')  
@@ -260,31 +263,32 @@ def create_30min_plots(daily_data, output_dir, date):
     plt.close()
 
 # -----------------------------------------------------------
-# 5. 메인 함수
+# 5. Main function
 # -----------------------------------------------------------
 
 def main():
-    """메인 실행 함수"""
+    """Main execution function."""
+    
     try:
         if TEST_MODE:
             os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-            # 1. 데이터 로드 및 전처리
+            # 1. Load and preprocess data
             df = load_and_preprocess_data(DATA_PATH)
             
-            # [안전장치] 로드된 데이터의 TIMESTAMP 확인
+            # [Safety check] Validate TIMESTAMP in loaded data
             df['TIMESTAMP'] = pd.to_datetime(df['TIMESTAMP'], errors='coerce')
             df = df.dropna(subset=['TIMESTAMP'])
             
             if len(df) == 0:
                 return
 
-            # 2. 모델 로드
+            # 2. Load model
             feature_columns = joblib.load(FEATURE_PATH)
             model = CatBoostRegressor()
             model.load_model(MODEL_PATH)
             
-            # 3. 날짜별 시뮬레이션
+            # 3. Day-by-day simulation
             for date_str in TEST_DATES:
                 TEST_NOW = date_str
                 test_day = pd.to_datetime(TEST_NOW).normalize()
@@ -302,7 +306,7 @@ def main():
                 if len(target_df) == 0:
                     continue
                 
-                # 피처 생성
+                # Create features
                 target_df = create_advanced_features(target_df, seq_length=6)
                 target_df = target_df.dropna(subset=feature_columns)
                 
